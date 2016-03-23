@@ -27,9 +27,9 @@
 
 (defn purchases-html [purchases]
   (let [purchases (reverse (sort-by :date purchases))] 
-    [:table
-     [:th (map (fn [key]
-                 [:td key])
+    [:table {:style "width:100%" :border "1"}
+     [:tr (map (fn [key]
+                 [:th key])
            (keys (first purchases)))]        
      (map (fn [purchase]
             [:tr (map (fn [value]

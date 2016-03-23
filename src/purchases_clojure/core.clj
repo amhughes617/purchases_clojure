@@ -1,31 +1,70 @@
 (ns purchases-clojure.core
     (:require [clojure.string :as str]
-            [clojure.walk :as walk])
+              [clojure.walk :as walk]
+              [compojure.core :as c]
+              [ring.adapter.jetty :as j]
+              [ring.middleware.params :as p]
+              [hiccup.core :as h])
   (:gen-class))
 
 (def categories (atom []))
+(def purchases (atom []))
+
+(defn read-purchases []
+  (reset! purchases (let [purchases (slurp "purchases.csv")
+                          purchases (str/split-lines purchases)
+                          purchases (map (fn [line]
+                                          (str/split line #","))
+                                      purchases)
+                          header (first purchases)
+                          purchases (rest purchases)
+                          purchases (map (fn [line]
+                                           (apply hash-map (interleave header line)))
+                                      purchases)
+                          purchases (walk/keywordize-keys purchases)]
+                         (reset! categories (vec (set (map :category purchases))))
+                     purchases)))
+
+(defn purchases-html [purchases]
+  (let [purchases (reverse (sort-by :date purchases))] 
+    [:table
+     [:th (map (fn [key]
+                 [:td key])
+           (keys (first purchases)))]        
+     (map (fn [purchase]
+            [:tr (map (fn [value]
+                       [:td value])
+                  (vals purchase))])        
+          purchases)]))
+
+(defn category-html []
+  [:div
+    [:a {:href "/"} "All"]
+    " "
+    (map (fn [category]
+           [:span
+            [:a {:href (str "/filter?category=" category)} category]
+            " "])
+      (sort @categories))])
+    
+(c/defroutes app
+  (c/GET "/" request
+    (h/html [:html
+             [:body
+              (category-html)
+              (purchases-html @purchases)]]))
+  (c/GET "/filter" request
+    (let [params (:params request)
+          category (get params "category")
+          filtered-purchases (filter (fn [purchase]
+                                      (= (:category purchase) category))
+                              @purchases)]
+      (h/html [:html 
+               [:body 
+                (category-html)
+                (purchases-html filtered-purchases)]]))))
+
 
 (defn -main []
-  (let [purchases (slurp "purchases.csv")
-            purchases (str/split-lines purchases)
-            purchases (map (fn [line]
-                            (str/split line #","))
-                        purchases)
-            header (first purchases)
-            purchases (rest purchases)
-            purchases (map (fn [line]
-                             (apply hash-map (interleave header line)))
-                        purchases)
-            purchases (walk/keywordize-keys purchases)
-            _ (when (empty? @categories) (reset! categories (vec (set (map :category purchases)))))];when makes sure the atom isn't poplulated every loop through, but then i moved this out of the loop, left it here for reference  
-    (loop []
-      (println "Pick a number between 1 and 6. Type q to quit.")
-      (let [input (read-line)]
-          (when (not= input "q")
-            (let [cat-choice (get @categories (- (Integer/valueOf input) 1))
-                  purchases (filter (fn [line]
-                                     (= (:category line) cat-choice))
-                                   purchases)]
-              (spit (str cat-choice "_purchases.edn") (pr-str purchases))
-              (println purchases)
-              (recur)))))))
+  (read-purchases)
+  (j/run-jetty (p/wrap-params app) {:port 3000}))
